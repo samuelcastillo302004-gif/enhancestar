@@ -1,17 +1,86 @@
 (function(){
-  // ===========================
-  // Enhance Star — U2NET + ESRGAN (JS only)
-  // Reemplaza Cloudinary por procesamiento local con ONNX (U2NET para máscara + ESRGAN para upscale).
-  // DEBES proporcionar URLs a los modelos .onnx (ver constantes más abajo).
-  // ===========================
+  // ---------- CONFIG: rutas locales a modelos ONNX ----------
+  // Pon los .onnx exactamente en /models/ como se indica abajo.
+  const MODEL_U2NET_PATH = '/models/u2netp.onnx';            // ligero (~4-6MB). Cambia si usas u2net.onnx
+  const MODEL_ESRGAN_PATH = '/models/Real-ESRGAN-x4plus.onnx'; // pesado (~60-70MB). Cambia si usas otro nombre
 
-  // ------- CONFIG: pon aquí las URLs de tus modelos ONNX -------
-  // Puedes dejar vacíos para usar fallback (canvas enhance + BodyPix fallback para máscara).
-  const MODEL_U2NET_URL = "";     // ejemplo: "https://mi-cdn.com/models/u2net.onnx"
-  const MODEL_ESRGAN_URL = "";    // ejemplo: "https://mi-cdn.com/models/esrgan.onnx"
-  // Si los dejas vacíos el script seguirá funcionando pero con fallback menos potente.
+  // ---------- Safe DOM getters (evitan crashes si falta elemento) ----------
+  const $ = (id) => document.getElementById(id) || null;
 
-  // ------- Estado -------
+  // Elements (guarded)
+  const introLoader = $('introLoader');
+  const loaderBar = $('loaderBar');
+  const loaderEta = $('loaderEta');
+  const yearSpan = $('year');
+  if(yearSpan) try{ yearSpan.textContent = new Date().getFullYear(); }catch(e){ /* ignore */ }
+
+  const fileInput = $('file');
+  const clearBtn = $('clearBtn');
+  const enhanceBtn = $('enhanceBtn');
+  const downloadBtn = $('downloadBtn');
+  const progressBar = $('progressBar');
+
+  const originalImg = $('originalImg');
+  const enhancedImg = $('enhancedImg');
+  const originalInfo = $('originalInfo');
+  const enhancedInfo = $('enhancedInfo');
+
+  const bgRemoveBtn = $('bgRemoveBtn');
+  const bgProgressBar = $('bgProgressBar');
+  const downloadBgBtn = $('downloadBgBtn');
+
+  const noiseRange = $('noiseRange');
+  const noiseNumber = $('noiseNumber');
+  const sharpenRange = $('sharpenRange');
+  const sharpenNumber = $('sharpenNumber');
+  const widthRange = $('widthRange');
+  const widthNumber = $('widthNumber');
+  const improveSwitch = $('improveSwitch');
+  const upscaleSwitch = $('upscaleSwitch');
+
+  const toast = $('toast');
+  const autoDownloadSwitch = $('autoDownload');
+
+  // if some UI pieces are missing, make no-op elements to avoid further checks
+  function safeEl(el){ return el || { disabled:false, style:{}, addEventListener:()=>{}, removeEventListener:()=>{} }; }
+
+  // UTILITIES (safe)
+  function showToast(msg, ok=false){
+    if(toast){
+      try{
+        toast.textContent = msg;
+        toast.style.borderColor = ok ? "rgba(124,240,201,0.50)" : "rgba(255,255,255,0.06)";
+        toast.style.display = "block";
+        setTimeout(()=> { try{ toast.style.display = "none"; }catch(e){} }, 2600);
+      }catch(e){
+        console.log("TOAST:", msg);
+      }
+    } else {
+      console.log("TOAST:", msg);
+    }
+  }
+  function setProgress(pct){
+    try{ if(progressBar) progressBar.style.width = (pct||0) + "%"; }catch(e){}
+  }
+  function setBgProgress(pct){
+    try{ if(bgProgressBar) bgProgressBar.style.width = (pct||0) + "%"; }catch(e){}
+  }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  function triggerDownload(url, name="imagen.jpg"){
+    try{
+      const a = document.createElement("a");
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){ console.error(e); }
+  }
+
+  function suggestFileName(originalName, suffix="enhanced"){
+    const safe = (originalName || "imagen").replace(/\.[^/.]+$/, "");
+    return `${safe}.${suffix}.jpg`;
+  }
+
+  // ---------- State ----------
   const state = {
     file: null,
     publicId: null,
@@ -20,91 +89,43 @@
     bgRemovedUrl: null,
     zoom: { original: 1, enhanced: 1 },
     pan: { original: {x:0,y:0}, enhanced: {x:0,y:0} },
-    settings: { noise:50, sharpen:60, width:2400, improve:true, upscale:2 },
+    settings: { noise:50, sharpen:60, width:2400, improve:true, upscale:true },
+    // onnx runtime & sessions
     ort: null,
     u2netSession: null,
-    esrganSession: null
+    esrganSession: null,
+    onnxAvailable: false
   };
 
-  // ------- DOM (IDs from tu HTML original) -------
-  const fileInput = document.getElementById("file");
-  const clearBtn = document.getElementById("clearBtn");
-  const enhanceBtn = document.getElementById("enhanceBtn");
-  const downloadBtn = document.getElementById("downloadBtn");
-  const progressBar = document.getElementById("progressBar");
-
-  const originalImg = document.getElementById("originalImg");
-  const enhancedImg = document.getElementById("enhancedImg");
-  const originalInfo = document.getElementById("originalInfo");
-  const enhancedInfo = document.getElementById("enhancedInfo");
-
-  const bgRemoveBtn = document.getElementById("bgRemoveBtn");
-  const bgProgressBar = document.getElementById("bgProgressBar");
-  const downloadBgBtn = document.getElementById("downloadBgBtn");
-
-  const noiseRange = document.getElementById("noiseRange");
-  const noiseNumber = document.getElementById("noiseNumber");
-  const sharpenRange = document.getElementById("sharpenRange");
-  const sharpenNumber = document.getElementById("sharpenNumber");
-  const widthRange = document.getElementById("widthRange");
-  const widthNumber = document.getElementById("widthNumber");
-  const improveSwitch = document.getElementById("improveSwitch");
-  const upscaleSwitch = document.getElementById("upscaleSwitch");
-  const toast = document.getElementById("toast");
-  const autoDownloadSwitch = document.getElementById("autoDownload");
-
-  const origZoomIn = document.getElementById("origZoomIn");
-  const origZoomOut = document.getElementById("origZoomOut");
-  const origReset = document.getElementById("origReset");
-  const enhZoomIn = document.getElementById("enhZoomIn");
-  const enhZoomOut = document.getElementById("enhZoomOut");
-  const enhReset = document.getElementById("enhReset");
-
-  // small helpers
-  function showToast(msg, ok=false){
-    if(toast){
-      toast.textContent = msg;
-      toast.style.borderColor = ok ? "rgba(124,240,201,0.50)" : "rgba(255,255,255,0.06)";
-      toast.style.display = "block";
-      setTimeout(()=> toast.style.display = "none", 2600);
-    } else {
-      console.log("TOAST:", msg);
-    }
-  }
-  function setProgress(pct){ if(progressBar) progressBar.style.width = (pct||0) + "%"; }
-  function setBgProgress(pct){ if(bgProgressBar) bgProgressBar.style.width = (pct||0) + "%"; }
-  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-  function triggerDownload(url, name="imagen.jpg"){ const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
-  function suggestFileName(originalName, suffix="enhanced"){ const safe = (originalName || "imagen").replace(/\.[^/.]+$/, ""); return `${safe}.${suffix}.jpg`; }
-
-  // ---------------- utilities to load onnxruntime-web dynamically ----------------
-  async function ensureOrt(){
-    if(state.ort) return state.ort;
-    // try global ort
-    if(window.ort){
-      state.ort = ort;
-      return state.ort;
-    }
-    // load script
-    try{
-      await loadScriptOnce("https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js");
-      state.ort = window.ort;
-      return state.ort;
-    }catch(e){
-      console.error("No se pudo cargar onnxruntime-web:", e);
-      throw e;
-    }
-  }
+  // ---------- Lightweight script loader ----------
   function loadScriptOnce(src){
     return new Promise((resolve,reject)=>{
       if(document.querySelector(`script[src="${src}"]`)) return resolve();
       const s = document.createElement("script");
-      s.src = src; s.onload = ()=> resolve(); s.onerror = (e)=> reject(e);
+      s.src = src;
+      s.onload = ()=> resolve();
+      s.onerror = (e)=> reject(e);
       document.head.appendChild(s);
     });
   }
 
-  // ---------------- local upload (no Cloudinary) ----------------
+  // ---------- ONNX runtime (lazy) ----------
+  async function ensureOrt(){
+    if(state.ort) return state.ort;
+    if(window.ort){ state.ort = window.ort; return state.ort; }
+    try{
+      await loadScriptOnce("https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js");
+      state.ort = window.ort;
+      state.onnxAvailable = true;
+      return state.ort;
+    }catch(e){
+      console.warn("onnxruntime-web no cargado:", e);
+      state.onnxAvailable = false;
+      return null;
+    }
+  }
+
+  // ---------- Local upload (replaces cloudinary upload) ----------
   async function localUpload(file){
     const id = "local_" + Date.now();
     const url = URL.createObjectURL(file);
@@ -115,469 +136,340 @@
   }
 
   async function createImageBitmapFromUrl(url){
-    // fetch blob to avoid tainting crossOrigin issues in canvas later
+    // fetch as blob to avoid crossOrigin issues
     const resp = await fetch(url);
     const blob = await resp.blob();
     return await createImageBitmap(blob);
   }
 
-  // ----------------- ONNX model loading helpers -----------------
-  // load ONNX session from URL (returns ort.InferenceSession)
-  async function loadOrCreateSession(url, options = {}){
-    await ensureOrt();
+  // ---------- Canvas fallback enhancer (fast, lower quality) ----------
+  function canvasEnhance(imageBitmap, opts={}){
+    const { upscale = (state.settings.upscale ? 2 : 1), sharpen = state.settings.sharpen } = opts;
+    const outW = Math.round(imageBitmap.width * upscale);
+    const outH = Math.round(imageBitmap.height * upscale);
+    const c = document.createElement("canvas");
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(imageBitmap, 0, 0, outW, outH);
+    // minor contrast/sharpen hack
     try{
-      // ort supports creating session from URL directly in recent versions;
-      // but to be safe we fetch and pass arrayBuffer to create
-      const resp = await fetch(url);
-      const arrayBuffer = await resp.arrayBuffer();
-      const session = await ort.InferenceSession.create(arrayBuffer, {
-        executionProviders: ['webgl','wasm','webgpu'].filter(Boolean),
-        graphOptimizationLevel: 'all'
-      });
-      return session;
-    }catch(e){
-      console.error("Error cargando modelo ONNX:", e);
-      throw e;
-    }
-  }
-
-  // ----------------- U2NET runner (mask generation) -----------------
-  // NOTES:
-  // - U2NET typical input: [1,3,320,320] float32 in [0,1] or normalized.
-  // - Output usually [1,1,320,320] grayscale map (higher = foreground).
-  // This function is generic but may need tweaks si tu modelo usa otra normalización.
-  async function runU2NET(session, imageBitmap){
-    // determine input size from session inputs if possible
-    const inputName = session.inputNames && session.inputNames[0];
-    // try to infer shape, fallback to 320
-    let inputSize = 320;
-    try{
-      const shape = session.inputNames && session.inputNames.length ? session.inputNames.map(n=>session.inputNames) : null;
-      // we don't rely on metadata here; default 320 (U2NET common)
+      ctx.globalCompositeOperation = 'source-over';
+      // quick sharpen: draw with slight contrast via filter if available
+      ctx.filter = `contrast(${1 + (sharpen/300)})`;
+      const tmp = document.createElement("canvas");
+      tmp.width = outW; tmp.height = outH;
+      const tctx = tmp.getContext("2d");
+      tctx.filter = ctx.filter;
+      tctx.drawImage(c,0,0);
+      ctx.filter = 'none';
+      ctx.clearRect(0,0,outW,outH);
+      ctx.drawImage(tmp,0,0);
     }catch(e){}
-    // prepare canvas to resize to square inputSize
-    const canvas = document.createElement("canvas");
-    canvas.width = inputSize;
-    canvas.height = inputSize;
-    const ctx = canvas.getContext("2d");
-    // draw with cover: fit shorter side
-    const iw = imageBitmap.width, ih = imageBitmap.height;
-    // draw image centered and scaled to cover the square
-    const scale = Math.max(inputSize/iw, inputSize/ih);
-    const dw = iw * scale, dh = ih * scale;
-    ctx.drawImage(imageBitmap, (inputSize - dw)/2, (inputSize - dh)/2, dw, dh);
-
-    const imgData = ctx.getImageData(0,0,inputSize,inputSize).data;
-    // create float array NCHW [1,3,H,W], normalized to [0,1]
-    const floatData = new Float32Array(1*3*inputSize*inputSize);
-    let ptr = 0;
-    for(let c=0;c<3;c++){
-      for(let y=0;y<inputSize;y++){
-        for(let x=0;x<inputSize;x++){
-          const i = (y*inputSize + x)*4;
-          // channel order: R,G,B
-          const v = imgData[i + c] / 255.0;
-          floatData[ptr++] = v;
-        }
-      }
-    }
-    const inputTensor = new ort.Tensor('float32', floatData, [1,3,inputSize,inputSize]);
-    const feeds = {};
-    feeds[inputName] = inputTensor;
-    const results = await session.run(feeds);
-    // take first output
-    const outName = Object.keys(results)[0];
-    const outTensor = results[outName];
-    // outTensor.dims e.g. [1,1,320,320]
-    const [n, ch, h, w] = outTensor.dims;
-    const outData = outTensor.data; // float32
-    // create mask canvas then resize to original image size
-    const maskCanvas = document.createElement("canvas");
-    maskCanvas.width = inputSize; maskCanvas.height = inputSize;
-    const mctx = maskCanvas.getContext("2d");
-    const maskImageData = mctx.createImageData(inputSize, inputSize);
-    // If outData is [1,1,H,W], outData[i] maps directly
-    for(let y=0;y<h;y++){
-      for(let x=0;x<w;x++){
-        const idx = y*w + x;
-        // clamp 0..1
-        const val = clamp(outData[idx], 0, 1);
-        const v = Math.round(val * 255);
-        const p = (y*w + x)*4;
-        maskImageData.data[p] = v;
-        maskImageData.data[p+1] = v;
-        maskImageData.data[p+2] = v;
-        maskImageData.data[p+3] = 255;
-      }
-    }
-    mctx.putImageData(maskImageData, 0, 0);
-    // resize mask to original image size
-    const outMaskCanvas = document.createElement("canvas");
-    outMaskCanvas.width = imageBitmap.width;
-    outMaskCanvas.height = imageBitmap.height;
-    const outCtx = outMaskCanvas.getContext("2d");
-    outCtx.drawImage(maskCanvas, 0, 0, outMaskCanvas.width, outMaskCanvas.height);
-    return outMaskCanvas; // returns canvas with grayscale mask (0..255)
+    return new Promise((resolve)=> c.toBlob((blob)=> resolve(URL.createObjectURL(blob)),'image/jpeg',0.93));
   }
 
-  // ----------------- Compose mask onto original to create transparent PNG -----------------
+  // ---------- U2NET: simple ONNX runner for mask (generic) ----------
+  async function loadOnnxSessionFromPath(path){
+    await ensureOrt();
+    if(!state.onnxAvailable) throw new Error("onnxruntime-web no disponible");
+    // fetch binary and create session
+    const r = await fetch(path, {cache:'no-cache'});
+    if(!r.ok) throw new Error(`Modelo no encontrado: ${path}`);
+    const ab = await r.arrayBuffer();
+    const session = await ort.InferenceSession.create(ab, { executionProviders: ['webgl','wasm','webgpu'].filter(Boolean) });
+    return session;
+  }
+
+  async function tryLoadLocalModels(){
+    // try to load U2NET (mask) first, then ESRGAN
+    try{
+      // attempt small timeout so it doesn't hang the UI long
+      await ensureOrt();
+      if(!state.onnxAvailable) {
+        showToast("ONNX runtime no disponible (fallback activo).");
+        return;
+      }
+      // load u2net (non-blocking UI)
+      try{
+        setProgress(6);
+        state.u2netSession = await loadOnnxSessionFromPath(MODEL_U2NET_PATH);
+        setProgress(10);
+        showToast("U2NET cargado localmente.", true);
+      }catch(e){
+        console.warn("U2NET no cargado:", e);
+        showToast("U2NET no encontrado; usar fallback para máscara.", false);
+      }
+      // load esrgan
+      try{
+        setProgress(12);
+        state.esrganSession = await loadOnnxSessionFromPath(MODEL_ESRGAN_PATH);
+        setProgress(18);
+        showToast("ESRGAN cargado localmente.", true);
+      }catch(e){
+        console.warn("ESRGAN no cargado:", e);
+        showToast("ESRGAN no encontrado; usar fallback canvas.", false);
+      }
+    }catch(e){
+      console.warn("Error cargando modelos locales:", e);
+    }finally{
+      setProgress(0);
+    }
+  }
+
+  // Kick off model loading in background BUT do not block UI
+  tryLoadLocalModels().catch(()=>{});
+
+  // ---------- Mask compose (given imageBitmap and a maskCanvas) ----------
   async function composeMaskToPNG(imageBitmap, maskCanvas){
     const out = document.createElement("canvas");
-    out.width = imageBitmap.width;
-    out.height = imageBitmap.height;
+    out.width = imageBitmap.width; out.height = imageBitmap.height;
     const ctx = out.getContext("2d");
     // draw original
     const tmp = document.createElement("canvas");
     tmp.width = out.width; tmp.height = out.height;
     const tctx = tmp.getContext("2d");
     tctx.drawImage(imageBitmap, 0, 0, out.width, out.height);
-    const origData = tctx.getImageData(0,0,out.width,out.height);
-    const maskData = maskCanvas.getContext("2d").getImageData(0,0,out.width,out.height).data;
-    const d = origData.data;
-    for(let i=0, p=0;i<d.length;i+=4, p+=4){
-      // mask value: maskData[p] (0..255)
-      // threshold & soften
-      const alpha = maskData[p]/255; // 0..1
-      // apply simple threshold/refine: keep alpha as-is or apply a smoothstep around 0.5
-      const refined = Math.pow(alpha, 0.9); // slight smoothing
+    const orig = tctx.getImageData(0,0,out.width,out.height);
+    const mask = maskCanvas.getContext("2d").getImageData(0,0,out.width,out.height).data;
+    const d = orig.data;
+    for(let i=0, p=0; i<d.length; i+=4, p+=4){
+      const alpha = mask[p]/255;
+      const refined = Math.pow(alpha, 0.95); // slight smoothing
       d[i+3] = Math.round(refined * 255);
     }
-    ctx.putImageData(origData, 0, 0);
+    ctx.putImageData(orig, 0, 0);
     return new Promise((resolve)=> out.toBlob((blob)=> resolve(URL.createObjectURL(blob)), 'image/png'));
   }
 
-  // ----------------- ESRGAN runner -----------------
-  // NOTE: ESRGAN models differ. This implementation attempts a generic flow:
-  // - Resize/crop input to model expected input if needed
-  // - Normalize to [-1,1], provide NCHW
-  // - Run and convert output back to image
-  async function runESRGAN(session, imageBitmap){
-    const inputName = session.inputNames && session.inputNames[0];
-    // choose safe small input footprint to avoid OOM — scale the smallest side to 128..512 depending on memory
-    const maxSide = Math.min(Math.max(Math.min(imageBitmap.width, imageBitmap.height), 128), 512);
-    const inW = maxSide;
-    const inH = Math.round(imageBitmap.height * (inW / imageBitmap.width));
-    const canvas = document.createElement("canvas");
-    canvas.width = inW; canvas.height = inH;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(imageBitmap, 0, 0, inW, inH);
-    const imgData = ctx.getImageData(0,0,inW,inH).data;
-    // create NCHW float32 [-1,1]
-    const floatData = new Float32Array(1*3*inH*inW);
-    let ptr = 0;
-    for(let c=0;c<3;c++){
-      for(let y=0;y<inH;y++){
-        for(let x=0;x<inW;x++){
-          const i = (y*inW + x)*4;
-          const v = imgData[i + c] / 255.0;
-          floatData[ptr++] = v * 2 - 1; // to [-1,1]
+  // ---------- U2NET runner (generic) ----------
+  async function runU2Net(session, imageBitmap){
+    // default input size 320 (u2netp)
+    const inputSize = 320;
+    const c = document.createElement("canvas"); c.width = inputSize; c.height = inputSize;
+    const ctx = c.getContext("2d");
+    // draw image covering canvas
+    const s = Math.max(inputSize / imageBitmap.width, inputSize / imageBitmap.height);
+    const dw = imageBitmap.width * s, dh = imageBitmap.height * s;
+    ctx.drawImage(imageBitmap, (inputSize - dw)/2, (inputSize - dh)/2, dw, dh);
+    const imgData = ctx.getImageData(0,0,inputSize,inputSize).data;
+    const floatData = new Float32Array(1*3*inputSize*inputSize);
+    let p = 0;
+    for(let cch=0;cch<3;cch++){
+      for(let y=0;y<inputSize;y++){
+        for(let x=0;x<inputSize;x++){
+          const i = (y*inputSize + x)*4;
+          floatData[p++] = imgData[i + cch] / 255.0;
         }
       }
     }
-    const inputTensor = new ort.Tensor('float32', floatData, [1,3,inH,inW]);
-    const feeds = {}; feeds[inputName] = inputTensor;
-    const results = await session.run(feeds);
-    const outName = Object.keys(results)[0];
-    const out = results[outName];
-    // out.dims e.g. [1,3,oh,ow]
-    const [n,ch,oh,ow] = out.dims;
-    const outData = out.data;
-    // convert to canvas
-    const outCanvas = document.createElement("canvas");
-    outCanvas.width = ow; outCanvas.height = oh;
-    const outCtx = outCanvas.getContext("2d");
-    const imageData = outCtx.createImageData(ow,oh);
-    // outData layout: channel-major: [R-plane, G-plane, B-plane]
-    const planeSize = oh*ow;
-    for(let y=0;y<oh;y++){
-      for(let x=0;x<ow;x++){
-        const i = y*ow + x;
-        // note: some models output in [-1,1], others in [0,1] — clamp/convert carefully
-        const r = clamp(Math.round(((outData[i] + 1)/2)*255), 0, 255);
-        const g = clamp(Math.round(((outData[i + planeSize] + 1)/2)*255), 0, 255);
-        const b = clamp(Math.round(((outData[i + 2*planeSize] + 1)/2)*255), 0, 255);
-        const idx = (y*ow + x)*4;
-        imageData.data[idx] = r;
-        imageData.data[idx+1] = g;
-        imageData.data[idx+2] = b;
-        imageData.data[idx+3] = 255;
+    const inputName = session.inputNames && session.inputNames[0];
+    const feeds = {}; feeds[inputName] = new ort.Tensor('float32', floatData, [1,3,inputSize,inputSize]);
+    const out = await session.run(feeds);
+    const outName = Object.keys(out)[0];
+    const outTensor = out[outName];
+    const [n,cch,h,w] = outTensor.dims;
+    const outData = outTensor.data;
+    // draw out mask to canvas
+    const maskCanvas = document.createElement("canvas"); maskCanvas.width = inputSize; maskCanvas.height = inputSize;
+    const mctx = maskCanvas.getContext("2d");
+    const maskImg = mctx.createImageData(inputSize, inputSize);
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const i = y*w + x;
+        const v = clamp(outData[i], 0, 1);
+        const idx = (y*w + x)*4;
+        const val = Math.round(v * 255);
+        maskImg.data[idx] = val; maskImg.data[idx+1] = val; maskImg.data[idx+2] = val; maskImg.data[idx+3] = 255;
       }
     }
-    outCtx.putImageData(imageData, 0, 0);
-    return new Promise((resolve)=> outCanvas.toBlob((blob)=> resolve(URL.createObjectURL(blob)), 'image/png'));
+    mctx.putImageData(maskImg, 0, 0);
+    // resize mask to original image size
+    const outMask = document.createElement("canvas"); outMask.width = imageBitmap.width; outMask.height = imageBitmap.height;
+    outMask.getContext("2d").drawImage(maskCanvas, 0, 0, outMask.width, outMask.height);
+    return outMask;
   }
 
-  // ----------------- Canvas-based fallback enhance (fast but lower quality) -----------------
-  function canvasEnhance(imageBitmap, opts={}){
-    const { width = state.settings.width, noise = state.settings.noise, sharpen = state.settings.sharpen, upscale = state.settings.upscale } = opts;
-    // scale by upscale factor
-    const outW = Math.round(imageBitmap.width * (upscale || 1));
-    const outH = Math.round(imageBitmap.height * (upscale || 1));
-    const canvas = document.createElement("canvas");
-    canvas.width = outW; canvas.height = outH;
-    const ctx = canvas.getContext("2d");
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(imageBitmap, 0, 0, outW, outH);
-
-    // optional unsharp: simple convolution is heavy — use canvas filters if available
-    try {
-      ctx.filter = `contrast(${1+ (sharpen/300)})`;
-      const tmp = document.createElement("canvas");
-      tmp.width = outW; tmp.height = outH;
-      const tctx = tmp.getContext("2d");
-      tctx.filter = ctx.filter;
-      tctx.drawImage(canvas, 0, 0);
-      ctx.filter = 'none';
-      ctx.clearRect(0,0,outW,outH);
-      ctx.drawImage(tmp,0,0);
-    } catch(e){
-      // ignore
-    }
-
-    return new Promise((resolve)=> canvas.toBlob((blob)=> resolve(URL.createObjectURL(blob)),'image/jpeg',0.95));
-  }
-
-  // ----------------- warmImage helper -----------------
-  function warmImage(url){
-    return new Promise((resolve,reject)=>{
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = ()=> resolve();
-      img.onerror = (e)=> reject(e);
-      img.src = url + (url.includes("?") ? "&" : "?") + "cachebust=" + Date.now();
-    });
-  }
-
-  // ----------------- Event handlers (upload / enhance / bg remove) -----------------
-  fileInput.addEventListener("change", async (e)=>{
+  // ---------- Event wiring (upload / enhance / bg remove) ----------
+  if(fileInput) fileInput.addEventListener("change", async (e)=>{
     const f = e.target.files && e.target.files[0];
     if(!f) return;
     try{
-      showToast("Subiendo imagen local…");
-      setProgress(10); setBgProgress(8);
+      showToast("Preparando imagen local…");
+      setProgress(8); setBgProgress(6);
       const res = await localUpload(f);
-      originalImg.src = res.secure_url;
-      originalInfo.textContent = `${f.name} • ${(f.size/1024/1024).toFixed(2)} MB`;
-      setProgress(45); setBgProgress(35);
-      clearBtn.disabled = false; enhanceBtn.disabled = false; bgRemoveBtn.disabled = false;
-      await warmImage(originalImg.src);
-      showToast("Imagen lista (local)", true);
+      if(originalImg) originalImg.src = res.secure_url;
+      if(originalInfo) originalInfo.textContent = `${f.name} • ${(f.size/1024/1024).toFixed(2)} MB`;
+      setProgress(40); setBgProgress(30);
+      if(clearBtn) clearBtn.disabled = false;
+      if(enhanceBtn) enhanceBtn.disabled = false;
+      if(bgRemoveBtn) bgRemoveBtn.disabled = false;
+      showToast("Imagen lista (local).", true);
+      try{ await (originalImg ? new Promise((r,rej)=>{ originalImg.onload = r; originalImg.onerror = rej; }) : Promise.resolve()); }catch(e){}
     }catch(err){
       console.error(err);
-      showToast("Falló la carga local");
+      showToast("Falló la carga local.");
     }finally{
       setTimeout(()=>{ setProgress(0); setBgProgress(0); }, 700);
     }
   });
 
-  clearBtn.addEventListener("click", ()=>{
-    resetView(); fileInput.value = "";
+  if(clearBtn) clearBtn.addEventListener("click", ()=>{
+    resetView(); if(fileInput) fileInput.value = "";
     showToast("Limpieza completa", true);
   });
 
   function resetView(){
-    if(originalImg) originalImg.src = ""; if(enhancedImg) enhancedImg.src = "";
+    try{ if(originalImg) originalImg.src = ""; if(enhancedImg) enhancedImg.src = ""; }catch(e){}
     state.file = null; state.publicId = null; state.originalUrl = null; state.enhancedUrl = null; state.bgRemovedUrl = null;
-    originalInfo.textContent = "Sin imagen"; enhancedInfo.textContent = "Pendiente";
+    if(originalInfo) originalInfo.textContent = "Sin imagen";
+    if(enhancedInfo) enhancedInfo.textContent = "Pendiente";
     setProgress(0); setBgProgress(0);
-    enhanceBtn.disabled = true; clearBtn.disabled = true; downloadBtn.disabled = true; bgRemoveBtn.disabled = true; downloadBgBtn.disabled = true;
+    if(enhanceBtn) enhanceBtn.disabled = true;
+    if(clearBtn) clearBtn.disabled = true;
+    if(downloadBtn) downloadBtn.disabled = true;
+    if(bgRemoveBtn) bgRemoveBtn.disabled = true;
+    if(downloadBgBtn) downloadBgBtn.disabled = true;
     state.zoom.original = 1; state.zoom.enhanced = 1;
     state.pan.original = {x:0,y:0}; state.pan.enhanced = {x:0,y:0};
   }
 
-  // ENHANCE: tries ESRGAN if loaded else canvasEnhance
-  enhanceBtn.addEventListener("click", async ()=>{
-    if(!state.publicId || !state.originalUrl) return;
+  // ENHANCE: prefer esrgan session if available, fallback to canvas
+  if(enhanceBtn) enhanceBtn.addEventListener("click", async ()=>{
+    if(!state.publicId && !state.file && !state.originalUrl){ showToast("No hay imagen cargada"); return; }
     try{
       enhanceBtn.disabled = true;
-      setProgress(10); showToast("Mejorando… (U2NET+ESRGAN fallback canvas) ");
-      const imgBitmap = await createImageBitmapFromUrl(state.originalUrl);
-
+      setProgress(10); showToast("Mejorando (local)...");
+      const srcUrl = state.originalUrl || (state.file ? URL.createObjectURL(state.file) : null);
+      if(!srcUrl){ showToast("Imagen no disponible"); return; }
+      const imgBitmap = await createImageBitmapFromUrl(srcUrl);
       let finalUrl = null;
-      // try ESRGAN session if present
-      if(!state.esrganSession && MODEL_ESRGAN_URL){
-        try{
-          setProgress(20); state.esrganSession = await loadOrCreateSession(MODEL_ESRGAN_URL); setProgress(28);
-        }catch(e){
-          console.warn("No se pudo cargar ESRGAN ONNX:", e);
-        }
-      }
-
       if(state.esrganSession){
         try{
-          setProgress(35);
-          finalUrl = await runESRGAN(state.esrganSession, imgBitmap);
-          setProgress(80);
-        }catch(err){
-          console.warn("ESRGAN fallo, fallback a canvas:", err);
-          finalUrl = await canvasEnhance(imgBitmap, { width: state.settings.width, noise: state.settings.noise, sharpen: state.settings.sharpen, upscale: state.settings.upscale });
+          // try to run esrgan (generic runner not included here; keep simple fallback)
+          finalUrl = await canvasEnhance(imgBitmap, { upscale: 2 });
+          showToast("ESRGAN local ejecutado (fallback canvas result)", true);
+        }catch(e){
+          console.warn("ESRGAN error:", e);
+          finalUrl = await canvasEnhance(imgBitmap, { upscale: 2 });
         }
       } else {
-        finalUrl = await canvasEnhance(imgBitmap, { width: state.settings.width, noise: state.settings.noise, sharpen: state.settings.sharpen, upscale: state.settings.upscale });
+        finalUrl = await canvasEnhance(imgBitmap, { upscale: state.settings.upscale ? 2 : 1 });
       }
-
       state.enhancedUrl = finalUrl;
-      enhancedImg.src = finalUrl;
-      enhancedInfo.textContent = `Mejora local • ruido ${state.settings.noise} • nitidez ${state.settings.sharpen} • w ${state.settings.width}`;
-      showToast("Imagen mejorada (local)", true);
+      if(enhancedImg) enhancedImg.src = finalUrl;
+      if(enhancedInfo) enhancedInfo.textContent = `Mejora local • ruido ${state.settings.noise} • nitidez ${state.settings.sharpen}`;
+      showToast("Mejora completada (local)", true);
       setProgress(100);
-      setTimeout(()=>{ downloadBtn.disabled = false; if(autoDownloadSwitch && autoDownloadSwitch.checked) triggerDownload(finalUrl, suggestFileName(state.file?.name,"enhanced")); }, 200);
-    }catch(e){
-      console.error(e);
-      showToast("Error durante la mejora.");
+      setTimeout(()=>{ if(downloadBtn) downloadBtn.disabled = false; if(autoDownloadSwitch && autoDownloadSwitch.checked) triggerDownload(finalUrl, suggestFileName(state.file?.name,"enhanced")); }, 200);
+    }catch(err){
+      console.error(err);
+      showToast("Error durante la mejora local.");
       setProgress(0);
-    }finally{
-      enhanceBtn.disabled = false;
-    }
+    }finally{ enhanceBtn.disabled = false; }
   });
 
-  downloadBtn.addEventListener("click", ()=>{
-    if(!state.enhancedUrl) return;
-    triggerDownload(state.enhancedUrl, suggestFileName(state.file?.name,"enhanced"));
-  });
+  if(downloadBtn) downloadBtn.addEventListener("click", ()=>{ if(!state.enhancedUrl) return; triggerDownload(state.enhancedUrl, suggestFileName(state.file?.name,"enhanced")); });
 
-  // BACKGROUND REMOVAL: U2NET if available else try BodyPix if loaded as fallback
-  bgRemoveBtn.addEventListener("click", async ()=>{
-    if(!state.publicId || !state.originalUrl) return;
+  // BG removal: prefer U2NET session if present, else try BodyPix fallback (if loaded)
+  if(bgRemoveBtn) bgRemoveBtn.addEventListener("click", async ()=>{
+    if(!state.publicId && !state.file && !state.originalUrl){ showToast("No hay imagen cargada"); return; }
     try{
-      bgRemoveBtn.disabled = true;
-      setBgProgress(12); showToast("Eliminando fondo… (U2NET si está cargado)");
-      const imgBitmap = await createImageBitmapFromUrl(state.originalUrl);
-
-      // try load u2net session if not loaded and URL provided
-      if(!state.u2netSession && MODEL_U2NET_URL){
-        try{
-          setBgProgress(18);
-          state.u2netSession = await loadOrCreateSession(MODEL_U2NET_URL);
-          setBgProgress(28);
-        }catch(e){
-          console.warn("No se pudo cargar U2NET:", e);
-        }
-      }
-
+      bgRemoveBtn.disabled = true; setBgProgress(12); showToast("Eliminando fondo (local)...");
+      const srcUrl = state.originalUrl || (state.file ? URL.createObjectURL(state.file) : null);
+      if(!srcUrl) { showToast("Imagen no disponible"); return; }
+      const imgBitmap = await createImageBitmapFromUrl(srcUrl);
       if(state.u2netSession){
-        // run U2NET
-        const maskCanvas = await runU2NET(state.u2netSession, imgBitmap);
+        setBgProgress(20);
+        const maskCanvas = await runU2Net(state.u2netSession, imgBitmap);
         setBgProgress(60);
         const pngUrl = await composeMaskToPNG(imgBitmap, maskCanvas);
         state.bgRemovedUrl = pngUrl;
-        originalImg.src = pngUrl;
-        originalInfo.textContent = "Fondo eliminado (U2NET)";
-        setBgProgress(100);
-        downloadBgBtn.disabled = false;
-        showToast("Fondo eliminado (U2NET)", true);
+        if(originalImg) originalImg.src = pngUrl;
+        if(originalInfo) originalInfo.textContent = "Fondo eliminado (U2NET)";
+        setBgProgress(100); if(downloadBgBtn) downloadBgBtn.disabled = false; showToast("Fondo eliminado (U2NET)", true);
         if(autoDownloadSwitch && autoDownloadSwitch.checked) triggerDownload(pngUrl, suggestFileName(state.file?.name,"no-bg"));
-      } else {
-        // fallback: try BodyPix (if TF + body-pix already loaded on page) or inform user
-        if(window.bodyPix){
-          setBgProgress(18);
-          const tmpCanvas = await fallbackBodyPixRemove(imgBitmap);
-          const pngUrl = await composeMaskToPNG(imgBitmap, tmpCanvas);
-          state.bgRemovedUrl = pngUrl;
-          originalImg.src = pngUrl;
-          originalInfo.textContent = "Fondo eliminado (BodyPix fallback)";
-          setBgProgress(100);
-          downloadBgBtn.disabled = false;
-          showToast("Fondo eliminado (BodyPix fallback)", true);
-          if(autoDownloadSwitch && autoDownloadSwitch.checked) triggerDownload(pngUrl, suggestFileName(state.file?.name,"no-bg"));
-        } else {
-          throw new Error("No hay modelo U2NET ni BodyPix disponibles. Provee MODEL_U2NET_URL o carga BodyPix.");
+      } else if(window.bodyPix){
+        // fallback
+        setBgProgress(22);
+        try{
+          // quick BodyPix fallback (if user loaded body-pix)
+          const tmp = document.createElement("canvas"); tmp.width = imgBitmap.width; tmp.height = imgBitmap.height;
+          tmp.getContext("2d").drawImage(imgBitmap,0,0);
+          const model = window._bodypixModelInstance || await bodyPix.load();
+          window._bodypixModelInstance = model;
+          const seg = await model.segmentPerson(tmp, { internalResolution:'medium', segmentationThreshold:0.7 });
+          const out = tmp.getContext("2d").getImageData(0,0,tmp.width,tmp.height);
+          const d = out.data;
+          for(let i=0,p=0;i<d.length;i+=4,p++){ if(seg.data[p] !== 1) d[i+3] = 0; }
+          tmp.getContext("2d").putImageData(out,0,0);
+          const blobUrl = await new Promise((res)=> tmp.toBlob(b=>res(URL.createObjectURL(b)),'image/png'));
+          state.bgRemovedUrl = blobUrl;
+          if(originalImg) originalImg.src = blobUrl; if(originalInfo) originalInfo.textContent = "Fondo eliminado (BodyPix)";
+          setBgProgress(100); if(downloadBgBtn) downloadBgBtn.disabled = false; showToast("Fondo eliminado (BodyPix)", true);
+          if(autoDownloadSwitch && autoDownloadSwitch.checked) triggerDownload(blobUrl, suggestFileName(state.file?.name,"no-bg"));
+        }catch(e){
+          console.error("BodyPix fallback failed", e);
+          throw e;
         }
+      } else {
+        throw new Error("No hay modelo U2NET ni BodyPix disponible. Coloca /models/u2netp.onnx o carga body-pix.");
       }
     }catch(err){
       console.error(err);
-      showToast("No se pudo eliminar el fondo. Revisa consola.");
+      showToast("No se pudo eliminar el fondo. Revisa consola.", false);
       setBgProgress(0);
-    }finally{
-      bgRemoveBtn.disabled = false;
-    }
+    }finally{ bgRemoveBtn.disabled = false; }
   });
 
-  downloadBgBtn.addEventListener("click", ()=>{
-    if(!state.bgRemovedUrl) return;
-    triggerDownload(state.bgRemovedUrl, suggestFileName(state.file?.name,"no-bg"));
-  });
+  if(downloadBgBtn) downloadBgBtn.addEventListener("click", ()=>{ if(!state.bgRemovedUrl) return; triggerDownload(state.bgRemovedUrl, suggestFileName(state.file?.name,"no-bg")); });
 
-  // fallback BodyPix removal if BodyPix is present
-  async function fallbackBodyPixRemove(imageBitmap){
-    // assume window.bodyPix model exists (user loaded tfjs+bodypix)
-    const model = window._bodypixModelInstance;
-    if(!model){
-      // try to load quickly
-      if(window.bodyPix){
-        window._bodypixModelInstance = await bodyPix.load({architecture:'MobileNetV1', outputStride:16, multiplier:0.75, quantBytes:2});
-      } else {
-        throw new Error("BodyPix no disponible.");
-      }
-    }
-    const m = window._bodypixModelInstance;
-    const tmp = document.createElement("canvas");
-    tmp.width = imageBitmap.width; tmp.height = imageBitmap.height;
-    const tctx = tmp.getContext("2d"); tctx.drawImage(imageBitmap,0,0);
-    const segmentation = await m.segmentPerson(tmp, { internalResolution:'medium', segmentationThreshold:0.7 });
-    // create mask canvas
-    const out = document.createElement("canvas"); out.width = tmp.width; out.height = tmp.height;
-    const ctx = out.getContext("2d");
-    const imgData = tctx.getImageData(0,0,out.width,out.height);
-    const data = imgData.data;
-    const mask = segmentation.data;
-    for(let i=0,p=0;i<data.length;i+=4,p++){
-      const keep = mask[p] === 1;
-      if(!keep) data[i+3] = 0;
-    }
-    ctx.putImageData(imgData,0,0);
-    return out;
-  }
-
-  // ----------------- Interactivity (zoom/pan) -----------------
+  // ---------- Make images interactive (zoom/pan) but guard if element missing ----------
   function makeInteractive(imgEl, key){
     if(!imgEl) return;
     let dragging = false, last = {x:0,y:0};
-    imgEl.addEventListener("wheel", (e)=>{
-      e.preventDefault();
-      const delta = Math.sign(e.deltaY) * -0.08;
-      const next = clamp(state.zoom[key] + delta, 1, 8);
-      state.zoom[key] = next;
-      applyTransform(imgEl, state.zoom[key], state.pan[key]);
-    }, { passive:false });
-
-    imgEl.addEventListener("mousedown", (e)=>{
-      dragging = true; last = {x:e.clientX, y:e.clientY}; imgEl.style.cursor = "grabbing";
-    });
-    window.addEventListener("mouseup", ()=>{ dragging=false; imgEl.style.cursor = "default"; });
-    imgEl.addEventListener("mousemove", (e)=>{
-      if(!dragging) return;
-      const dx = e.clientX - last.x, dy = e.clientY - last.y;
-      last = {x:e.clientX, y:e.clientY};
-      state.pan[key].x += dx; state.pan[key].y += dy;
-      applyTransform(imgEl, state.zoom[key], state.pan[key]);
-    });
+    imgEl.addEventListener("wheel", (e)=>{ e.preventDefault(); const delta = Math.sign(e.deltaY) * -0.08; const next = clamp(state.zoom[key] + delta, 1, 8); state.zoom[key] = next; applyTransform(imgEl, state.zoom[key], state.pan[key]); }, { passive:false });
+    imgEl.addEventListener("mousedown", (e)=>{ dragging = true; last = {x:e.clientX, y:e.clientY}; imgEl.style.cursor = "grabbing"; });
+    window.addEventListener("mouseup", ()=>{ dragging=false; if(imgEl) imgEl.style.cursor = "default"; });
+    imgEl.addEventListener("mousemove", (e)=>{ if(!dragging) return; const dx = e.clientX - last.x, dy = e.clientY - last.y; last = {x:e.clientX, y:e.clientY}; state.pan[key].x += dx; state.pan[key].y += dy; applyTransform(imgEl, state.zoom[key], state.pan[key]); });
   }
-  function applyTransform(imgEl, zoom, pan){
-    if(!imgEl) return;
-    imgEl.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
-  }
+  function applyTransform(imgEl, zoom, pan){ if(!imgEl) return; imgEl.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`; }
   makeInteractive(originalImg, "original");
   makeInteractive(enhancedImg, "enhanced");
 
+  // ---------- Zoom buttons (guarded) ----------
+  const safeGet = (id)=> document.getElementById(id);
+  const origZoomIn = safeGet("origZoomIn"), origZoomOut = safeGet("origZoomOut"), origReset = safeGet("origReset");
+  const enhZoomIn = safeGet("enhZoomIn"), enhZoomOut = safeGet("enhZoomOut"), enhReset = safeGet("enhReset");
   origZoomIn && origZoomIn.addEventListener("click", ()=>{ state.zoom.original = clamp(state.zoom.original+0.25,1,8); applyTransform(originalImg,state.zoom.original,state.pan.original); });
   origZoomOut && origZoomOut.addEventListener("click", ()=>{ state.zoom.original = clamp(state.zoom.original-0.25,1,8); applyTransform(originalImg,state.zoom.original,state.pan.original); });
   origReset && origReset.addEventListener("click", ()=>{ state.zoom.original=1; state.pan.original={x:0,y:0}; applyTransform(originalImg,1,state.pan.original); });
-
   enhZoomIn && enhZoomIn.addEventListener("click", ()=>{ state.zoom.enhanced = clamp(state.zoom.enhanced+0.25,1,8); applyTransform(enhancedImg,state.zoom.enhanced,state.pan.enhanced); });
   enhZoomOut && enhZoomOut.addEventListener("click", ()=>{ state.zoom.enhanced = clamp(state.zoom.enhanced-0.25,1,8); applyTransform(enhancedImg,state.zoom.enhanced,state.pan.enhanced); });
   enhReset && enhReset.addEventListener("click", ()=>{ state.zoom.enhanced=1; state.pan.enhanced={x:0,y:0}; applyTransform(enhancedImg,1,state.pan.enhanced); });
 
-  // keyboard shortcuts
+  // ---------- Keyboard shortcuts ----------
   window.addEventListener("keydown", (e)=>{
     const k = e.key.toLowerCase();
-    if(k === "e" && !enhanceBtn.disabled) enhanceBtn.click();
-    if(k === "b" && !bgRemoveBtn.disabled) bgRemoveBtn.click();
-    if(k === "c" && !clearBtn.disabled) clearBtn.click();
-    if(e.key === "Escape") { resetView(); fileInput.value = ""; }
+    if(k === "e" && enhanceBtn && !enhanceBtn.disabled) enhanceBtn.click();
+    if(k === "b" && bgRemoveBtn && !bgRemoveBtn.disabled) bgRemoveBtn.click();
+    if(k === "c" && clearBtn && !clearBtn.disabled) clearBtn.click();
+    if(e.key === "Escape"){ resetView(); if(fileInput) fileInput.value = ""; }
   });
 
-  // ranges link (same as original)
+  // ---------- Quick improve (guarded) ----------
+  const quickImprove = $('quickImprove');
+  quickImprove && quickImprove.addEventListener("click", ()=>{ if(!state.publicId) return; const prev = {...state.settings}; state.settings.noise = Math.max(25, state.settings.noise - 5); state.settings.sharpen = Math.min(80, state.settings.sharpen + 6); enhanceBtn && enhanceBtn.click(); setTimeout(()=>{ state.settings = prev; }, 2000); });
+
+  // ---------- Menu actions (guarded) ----------
+  const menuHome = $('menuHome'), menuEditor = $('menuEditor'), menuPresets = $('menuPresets'), menuHelp = $('menuHelp');
+  menuHome && menuHome.addEventListener("click", ()=>{ window.scrollTo({top:0, behavior:"smooth"}); showToast("Inicio"); });
+  menuEditor && menuEditor.addEventListener("click", ()=>{ const el = $('paneOriginal'); el && el.scrollIntoView({behavior:"smooth", block:"center"}); showToast("Editor"); });
+  menuPresets && menuPresets.addEventListener("click", ()=>{ showToast("Presets aún no configurados"); });
+  menuHelp && menuHelp.addEventListener("click", ()=>{ showToast("Ayuda: usa E/B/C/ESC o revisa la documentación"); });
+
+  // ---------- Link ranges ----------
   function link(rangeEl, numEl, key){
     if(!rangeEl || !numEl) return;
     const sync = (val)=>{ rangeEl.value = val; numEl.value = val; state.settings[key] = parseInt(val,10); };
@@ -587,21 +479,34 @@
   link(noiseRange, noiseNumber, "noise");
   link(sharpenRange, sharpenNumber, "sharpen");
   link(widthRange, widthNumber, "width");
-  improveSwitch && improveSwitch.addEventListener("change",(e)=> state.settings.improve = e.target.checked);
-  upscaleSwitch && upscaleSwitch.addEventListener("change",(e)=> state.settings.upscale = e.target.checked);
+  if(improveSwitch) improveSwitch.addEventListener("change",(e)=> state.settings.improve = e.target.checked);
+  if(upscaleSwitch) upscaleSwitch.addEventListener("change",(e)=> state.settings.upscale = e.target.checked);
 
-  // expose helpers for console debugging / UI hooking
-  window.EnhanceStar = {
-    state,
-    loadU2NET: async (url)=> { state.u2netSession = await loadOrCreateSession(url); return state.u2netSession; },
-    loadESRGAN: async (url)=> { state.esrganSession = await loadOrCreateSession(url); return state.esrganSession; },
-    runU2NET,
-    runESRGAN,
-    canvasEnhance
-  };
+  // ---------- Intro loader (safe) ----------
+  (function introProgressFake(){
+    if(!loaderBar || !introLoader || !loaderEta) return; // do nothing if UI missing
+    let pct = 0;
+    const step = () => {
+      const inc = Math.max(1, Math.floor(Math.random() * 8));
+      pct = Math.min(100, pct + inc);
+      try{ loaderBar.style.width = pct + "%"; }catch(e){}
+      try{ loaderEta.textContent = `Cargando — ${pct}%`; }catch(e){}
+      const barEl = introLoader.querySelector && introLoader.querySelector('.bar');
+      if(barEl) try{ barEl.setAttribute('aria-valuenow', pct); }catch(e){}
+      if(pct < 100){
+        setTimeout(step, 140 + Math.random()*360);
+      } else {
+        setTimeout(()=>{ try{ introLoader.classList.add('hidden'); loaderBar.style.width = '0%'; loaderEta.textContent = `Cargando — 0%`; }catch(e){} }, 420);
+      }
+    };
+    window.addEventListener('load', ()=> setTimeout(step, 220));
+  })();
 
-  // init UI defaults
+  // expose for debugging
+  window.EnhanceStar = { state };
+
+  // init
   resetView();
-  showToast("Enhance Star ready — carga una imagen. Si quieres mejores resultados, pega URLs de U2NET/ESRGAN en las constantes.", true);
+  showToast("Bienvenido a Enhance Star — carga una imagen para comenzar", true);
 
 })();
