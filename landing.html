@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <!--
+    Enhance Star - Landing profesional
+    Tema: Oscuro con fondo animado épico (auroras + partículas) y acentos azul claro
+    Características:
+      - Navegación fija con CTA a enhancestar.online
+      - Hero con logo y badges
+      - Galería: baja vs alta resolución (Batman nuevo.webp)
+      - Quitar fondo: con fondo (alta) vs sin fondo (PNG transparente)
+      - Transformación animada: p.jpg (con fondo) → psf.png (sin fondo) con sustitución real
+      - Animaciones de entrada, transiciones suaves, accesibilidad básica
+      - Modo oscuro consistente con botones azul claro
+      - Estructura modular y responsive
+      - Código extenso (~600 líneas) solicitado por el usuario
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Enhance Star</title>
+  <meta name="description" content="Enhance Star: landing oscuro con fondo animado épico y botones azul claro. Mejora perceptible, eliminación de fondo y demostraciones interactivas." />
+
+  <style>
+    /* =========================================================
+       Variables del tema (Oscuro + acentos azul claro)
+       ========================================================= */
+    :root{
+      --bg:#0a0f1b;
+      --surface:#101828;
+      --surface2:#0d1424;
+      --text:#eef5ff;
+      --muted:#a7b3d9;
+      --primary:#4a90ff;    /* azul claro principal */
+      --primary-2:#6aa8ff;  /* azul claro secundario */
+      --accent:#ff6cab;     /* acento rosa para pequeños detalles */
+      --border:#1f2a44;
+      --card:#141b2f;
+      --ring:#4a90ff;
+      --success:#36d992;
+      --warning:#fec84b;
+      --error:#f97066;
+    }
+
+    /* =========================================================
+       Reset básico + tipografía
+       ========================================================= */
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(74,144,255,.14), transparent 60%),
+        radial-gradient(1200px 600px at 80% -10%, rgba(106,168,255,.12), transparent 60%),
+        linear-gradient(180deg, var(--surface2), var(--bg));
+      overflow-x:hidden;
+    }
+    a{color:inherit;text-decoration:none}
+    img{max-width:100%; height:auto; display:block}
+
+    /* =========================================================
+       Fondo animado épico - Auroras suaves en azul
+       ========================================================= */
+    .aurora{
+      position:fixed; inset:-10% -10%; pointer-events:none; z-index:-1;
+    }
+    .aurora::before,
+    .aurora::after{
+      content:""; position:absolute; inset:0;
+      background:
+        radial-gradient(60% 100% at 10% 30%, rgba(135,174,255,.18), transparent 60%),
+        radial-gradient(40% 80% at 80% 10%, rgba(74,144,255,.16), transparent 66%),
+        radial-gradient(60% 100% at 50% 110%, rgba(106,168,255,.14), transparent 72%);
+      filter: blur(28px);
+      opacity:.8;
+      animation: aurora 28s ease-in-out infinite;
+    }
+    .aurora::after{
+      filter: blur(36px);
+      opacity:.55;
+      animation-duration: 42s;
+      animation-direction: reverse;
+    }
+    @keyframes aurora{
+      0%{transform: translate3d(-2%, -1%, 0) scale(1)}
+      50%{transform: translate3d(2%, 1%, 0) scale(1.03)}
+      100%{transform: translate3d(-2%, -1%, 0) scale(1)}
+    }
+
+    /* =========================================================
+       Navegación superior fija
+       ========================================================= */
+    .nav{
+      position:sticky; top:0; z-index:1000;
+      backdrop-filter: blur(8px);
+      background: linear-gradient(180deg, rgba(16,24,40,.95), rgba(13,20,36,.9));
+      border-bottom:1px solid var(--border);
+    }
+    .nav .wrap{
+      max-width:1200px; margin:0 auto;
+      display:flex; align-items:center; justify-content:space-between;
+      gap:16px; padding:12px 20px;
+    }
+    .brand-mini{display:flex; align-items:center; gap:10px}
+    .brand-mini img{
+      width:36px; height:36px; border-radius:8px;
+      box-shadow:0 6px 12px rgba(0,0,0,.25);
+      background:#0d1424;
+    }
+    .brand-mini .title{
+      font-weight:800; letter-spacing:.3px; color:var(--primary-2);
+    }
+    .menu{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+    .menu a{
+      padding:8px 12px; border-radius:10px; color:var(--primary-2);
+      transition:background .18s ease, transform .18s ease;
+    }
+    .menu a:hover{background:rgba(74,144,255,.16); transform:translateY(-1px)}
+    .menu .cta{
+      background: linear-gradient(180deg, var(--primary), var(--primary-2));
+      color:#fff; border-radius:12px; padding:10px 14px;
+      box-shadow:0 8px 18px rgba(74,144,255,.35);
+    }
+
+    /* =========================================================
+       Hero principal
+       ========================================================= */
+    header.hero{
+      min-height:84vh; display:grid; place-items:center;
+      text-align:center; padding:48px 20px; position:relative; overflow:hidden;
+    }
+    .hero-inner{max-width:1200px; width:100%;}
+    .brand{display:inline-flex; align-items:center; gap:14px; margin-bottom:10px;}
+    .brand img.logo{
+      width:84px; height:84px; border-radius:16px;
+      box-shadow:0 8px 20px rgba(0,0,0,.35); background:#0d1424;
+    }
+    .brand .title{
+      font-weight:800; font-size:2.4rem; letter-spacing:.4px; color:var(--primary-2);
+    }
+    .hero h2{font-size:1.08rem; color:var(--muted); margin:6px 0 20px; max-width:760px; margin-inline:auto}
+    .badges{display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin-bottom:20px;}
+    .badge{
+      font-size:.8rem; color:var(--primary-2); background:#1a2238; border:1px solid var(--border);
+      padding:6px 10px; border-radius:999px;
+    }
+    .cta-row{display:flex; justify-content:center; gap:10px; flex-wrap:wrap}
+    .btn{
+      padding:10px 16px; border-radius:12px; border:1px solid var(--border);
+      background:#141b2f; color:var(--primary-2); cursor:pointer; font-weight:600;
+      transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+    .btn:hover{transform:translateY(-1px); background:#1a2238}
+    .btn-primary{
+      background:linear-gradient(180deg, var(--primary), var(--primary-2));
+      border:none; color:#fff; box-shadow:0 10px 24px rgba(74,144,255,.38);
+    }
+    .btn-primary:hover{box-shadow:0 12px 28px rgba(74,144,255,.48)}
+    .btn-outline{
+      background:transparent; border:1px solid var(--primary); color:var(--primary-2);
+    }
+    .btn-outline:hover{
+      background:rgba(74,144,255,.12);
+    }
+
+    /* =========================================================
+       Secciones
+       ========================================================= */
+    section{padding:70px 20px}
+    .container{max-width:1200px; margin:0 auto}
+    .section-head{margin-bottom:22px;}
+    .section-head h3{margin:0; font-size:1.5rem; color:var(--primary-2)}
+    .section-sub{color:var(--muted); font-size:.96rem; margin-top:6px}
+
+    /* =========================================================
+       Tarjetas y grillas
+       ========================================================= */
+    .grid{display:grid; grid-template-columns:repeat(12,1fr); gap:18px}
+    .card{
+      grid-column:span 6; background:var(--card); border:1px solid var(--border);
+      border-radius:18px; overflow:hidden; box-shadow:0 6px 14px rgba(0,0,0,.25);
+      transition:transform .18s ease, box-shadow .18s ease;
+    }
+    .card:hover{transform:translateY(-2px); box-shadow:0 10px 20px rgba(0,0,0,.3)}
+    .card img{display:block; width:100%; height:auto; aspect-ratio:3/2; object-fit:cover;}
+    .card .body{padding:12px 16px; border-top:1px solid var(--border)}
+    .pill{
+      display:inline-block; font-size:.8rem; color:var(--primary-2); background:#1a2238; border:1px solid var(--border);
+      padding:6px 10px; border-radius:999px;
+    }
+    .pill.alt{background:#16203c; border-color:#243152}
+
+    /* =========================================================
+       Bloques de características informativas
+       ========================================================= */
+    .features{
+      display:grid; grid-template-columns:repeat(12,1fr); gap:14px;
+    }
+    .feature{
+      grid-column:span 4; background:#121a32; border:1px solid var(--border);
+      border-radius:16px; padding:16px; box-shadow:0 6px 14px rgba(0,0,0,.25);
+    }
+    .feature h4{margin:0 0 8px; font-size:1rem; color:var(--primary-2)}
+    .feature p{margin:0; color:var(--muted); font-size:.94rem}
+
+    /* =========================================================
+       Caja de transformación (sustitución real p.jpg -> psf.png)
+       ========================================================= */
+    .transform-box{
+      border:1px solid var(--border); border-radius:18px; overflow:hidden; background:#121a32;
+      box-shadow:0 8px 16px rgba(0,0,0,.25);
+    }
+    .transform-stage{
+      position:relative; min-height:420px; display:grid; place-items:center; padding:16px;
+    }
+    .transform-stage img{
+      max-width:92%; height:auto; object-fit:contain;
+      filter:drop-shadow(0 8px 14px rgba(0,0,0,.35));
+      transition: opacity .5s ease, transform .5s ease;
+    }
+    .transform-stage .img-result{
+      position:absolute; inset:0; margin:auto; opacity:0; transform:scale(.98);
+    }
+    .transform-controls{
+      display:flex; align-items:center; gap:12px; justify-content:space-between;
+      padding:12px; border-top:1px solid var(--border); background:#0f162c;
+    }
+    .status{color:var(--muted); font-size:.92rem}
+    .btn-mini{
+      padding:8px 12px; border-radius:10px; border:1px solid var(--border);
+      background:#141b2f; color:var(--primary-2); cursor:pointer; font-weight:600;
+      transition:transform .18s ease, box-shadow .18s ease;
+    }
+    .btn-mini:hover{transform:translateY(-1px); background:#1a2238}
+    .btn-play{background:linear-gradient(180deg, var(--primary), var(--primary-2)); border:none; color:#fff}
+
+    /* =========================================================
+       Bloque ayuda (FAQ simplificado)
+       ========================================================= */
+    .faq{
+      display:grid; grid-template-columns:repeat(12,1fr); gap:16px;
+    }
+    .faq .qa{
+      grid-column:span 6; background:#121a32; border:1px solid var(--border);
+      border-radius:16px; padding:16px; box-shadow:0 6px 14px rgba(0,0,0,.25);
+    }
+    .faq .qa h4{margin:0 0 6px; color:var(--primary-2); font-size:1rem}
+    .faq .qa p{margin:0; color:var(--muted); font-size:.95rem}
+
+    /* =========================================================
+       Footer
+       ========================================================= */
+    footer{
+      border-top:1px solid var(--border);
+      background:linear-gradient(180deg, var(--surface), #0a0f1b);
+      padding:28px 20px; text-align:center; color:var(--muted); font-size:.95rem;
+    }
+    footer a{color:var(--primary-2)}
+
+    /* =========================================================
+       Animaciones: Reveal on scroll
+       ========================================================= */
+    .reveal{opacity:0; transform:translateY(12px); transition:opacity .6s ease, transform .6s ease}
+    .reveal.visible{opacity:1; transform:translateY(0)}
+
+    /* =========================================================
+       Componentes utilitarios y responsive
+       ========================================================= */
+    .container-narrow{max-width:900px; margin:0 auto}
+    .hint{
+      font-size:.9rem; color:var(--muted); margin-top:10px;
+    }
+    .kbd{
+      display:inline-block; padding:3px 6px; border:1px solid var(--border); border-radius:6px;
+      background:#1a2238; color:var(--primary-2); font-size:.85rem;
+    }
+
+    /* Responsive */
+    @media (max-width:1100px){
+      .feature{grid-column:span 6}
+    }
+    @media (max-width:900px){
+      .card{grid-column:span 12}
+      .feature{grid-column:span 12}
+      .brand img.logo{width:72px; height:72px}
+      .brand .title{font-size:2rem}
+      .transform-stage{min-height:340px}
+    }
+
+    /* =========================================================
+       Extra: micro-interacciones y estados
+       ========================================================= */
+    .btn:focus, .btn-mini:focus, .menu a:focus, .cta:focus{
+      outline: 2px solid var(--ring);
+      outline-offset: 2px;
+    }
+    .sr-only{
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+      clip:rect(0,0,0,0); white-space:nowrap; border:0;
+    }
+  </style>
+</head>
+<body>
+  <!-- Fondo aurora animado -->
+  <div class="aurora" aria-hidden="true"></div>
+
+  <!-- Navegación -->
+  <nav class="nav" role="navigation" aria-label="Navegación principal">
+    <div class="wrap">
+      <div class="brand-mini">
+        <img alt="Logo Enhance Star"
+             src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhi_PvmsAMKmSMv8v1qtG6RQbzCm8DjFhzZDO5eklCD4VfhfeIe_RKnCT4thyphenhyphen5M_jYl9nqNp8PUk5_YP2rHrdQK7Q_1ZC4mqkb1zgi0TkM_NT-vQzgtG3-sW24rIOdS8KVC0TCnbd4Sv1dEv5IdAaG8bDQzXagVkeK2xoH690nDdomWEcYOfVtVYybfIQw/s320/Copilot_20251208_202732.png">
+        <span class="title">Enhance Star</span>
+      </div>
+      <div class="menu">
+        <a href="#ejemplos">Ejemplos</a>
+        <a href="#fondo">Quitar fondo</a>
+        <a href="#transform">Transformación</a>
+        <a class="cta" href="https://enhancestar.online" target="_blank" rel="noopener">Ir a EnhanceStar</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="brand reveal">
+        <img class="logo" alt="Logo Enhance Star"
+          src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhi_PvmsAMKmSMv8v1qtG6RQbzCm8DjFhzZDO5eklCD4VfhfeIe_RKnCT4thyphenhyphen5M_jYl9nqNp8PUk5_YP2rHrdQK7Q_1ZC4mqkb1zgi0TkM_NT-vQzgtG3-sW24rIOdS8KVC0TCnbd4Sv1dEv5IdAaG8bDQzXagVkeK2xoH690nDdomWEcYOfVtVYybfIQw/s320/Copilot_20251208_202732.png" />
+        <div class="title">Enhance Star</div>
+      </div>
+
+      <h2 class="reveal">Convierte lo común en épico: mejora, recorta y presenta con Enhance Star.</h2>
+
+      <div class="badges reveal" aria-label="Etiquetas principales">
+        <span class="badge">Calidad IA</span>
+        <span class="badge">Fondo transparente</span>
+        <span class="badge">Mejora la calidad de tus imagenes</span>
+      </div>
+
+      <div class="cta-row reveal">
+        <a class="btn btn-primary" href="#ejemplos">Ver ejemplos</a>
+        <a class="btn" href="#fondo">Quitar fondo</a>
+        <a class="btn btn-outline" href="#transform">Ver transformación</a>
+        <a class="btn" href="https://enhancestar.online" target="_blank" rel="noopener">Entrar a EnhanceStar</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Ejemplos: baja vs alta resolución -->
+  <section id="ejemplos" aria-labelledby="ejemplos-title">
+    <div class="container">
+      <div class="section-head">
+        <h3 id="ejemplos-title">Ejemplos claros</h3>
+        <div class="section-sub">Izquierda: baja resolución. Derecha: alta resolución real.</div>
+      </div>
+
+      <div class="grid">
+        <article class="card reveal" aria-label="Ejemplo baja resolución">
+          <img alt="Imagen sin calidad"
+               src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhkWo0Da1fCBLEH2r8Cl9X3cfnbQjdptqwAK3PxU5_faszfj3OBWoH5DvuSkCAC2WM8zxRI6TvL7_NUCYHk4vGBfo9U26XaVK-64qp5rWJRisdPpTbKq0CU3fDd2yOoRWDrs59uFPfEFIUuSc1UR14jcp4Bnk5J7TV2B44XLIprOQqWtWh0FLKruIWw4i0/s1600/images.jpg" />
+          <div class="body"><span class="pill">Baja resolución</span></div>
+        </article>
+
+        <article class="card reveal" aria-label="Ejemplo alta resolución">
+          <img alt="Imagen con alta resolución Batman nuevo.webp"
+               src="Batman nuevo.webp" />
+          <div class="body"><span class="pill alt">Alta resolución</span></div>
+        </article>
+      </div>
+
+      <div class="features" style="margin-top:18px">
+        <div class="feature reveal">
+          <h4>Mejora perceptible</h4>
+          <p>Incrementa nitidez, contraste y detalle manteniendo el carácter visual original. Lo que el usuario nota, no solo métricas técnicas.</p>
+        </div>
+        <div class="feature reveal">
+          <h4>Procesamiento rápido</h4>
+          <p>Optimizado para resultados en segundos, ideal para flujos de trabajo de diseño y publicación.</p>
+        </div>
+        <div class="feature reveal">
+          <h4>Exportación flexible</h4>
+          <p>PNG (transparente), JPEG y WebP listos para web, ecommerce y redes sociales. </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quitar fondo: con fondo vs sin fondo -->
+  <section id="fondo" aria-labelledby="fondo-title">
+    <div class="container">
+      <div class="section-head">
+        <h3 id="fondo-title">Eliminación de fondo</h3>
+        <div class="section-sub">Izquierda: con fondo (alta). Derecha: sin fondo (PNG con transparencia).</div>
+      </div>
+
+      <div class="grid">
+        <article class="card reveal" aria-label="Con fondo alta resolución">
+          <img alt="Con fondo alta resolución Batman nuevo.webp"
+               src="Batman nuevo.webp" />
+          <div class="body"><span class="pill">Con fondo (alta)</span></div>
+        </article>
+
+        <article class="card reveal" aria-label="Sin fondo PNG transparencia">
+          <img alt="Sin fondo PNG transparencia"
+               src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiZnJI1iumxIVSANLuKjHH1b8vDlVV0Z7erxJsBEiIiPFXmWN7qqRBnS_6gIPESRGSlo2NG0A22F-1GyE-NhWxLCcGmuyZLq5hyphenhyphen2OTRttMVlWJ_kaTdke7omXvUiofVPxl8Ee4NLYvEm45EqLhOwPzYjBbyIZLAmnW39AXj7Igu6qs5yzZn7lYlJ-t5RFU/s320/sseif8v5wpl89qolfke0.png" />
+          <div class="body"><span class="pill alt">Sin fondo (PNG)</span></div>
+        </article>
+      </div>
+
+      <p class="hint container-narrow reveal">
+        Recomendación: utiliza PNG con transparencia en alta resolución para recortes nítidos y profesionales sobre cualquier fondo creativo.
+      </p>
+    </div>
+  </section>
+
+  <!-- Transformación animada: sustitución real p.jpg -> psf.png -->
+  <section id="transform" aria-labelledby="transform-title">
+    <div class="container">
+      <div class="section-head">
+        <h3 id="transform-title">Transformación animada (sustitución real)</h3>
+        <div class="section-sub">Pulsa reproducir: la imagen con fondo se atenúa y se sustituye completamente por la versión sin fondo (PNG transparente).</div>
+      </div>
+
+      <div class="transform-box reveal" aria-live="polite">
+        <div class="transform-stage" id="transformStage">
+          <!-- p.jpg (con fondo): usando Batman nuevo.webp como ejemplo de alta con fondo -->
+          <img id="imgBase" class="img-base" alt="Con fondo (p.jpg)"
+               src="p.jpg" />
+
+          <!-- psf.png (sin fondo) -->
+          <img id="imgResult" class="img-result" alt="Sin fondo (psf.png)"
+               src="psf.png" />
+        </div>
+
+        <div class="transform-controls" role="group" aria-label="Controles de transformación">
+          <div class="status" id="statusText">Listo para transformar: p.jpg → psf.png</div>
+          <div style="display:flex; gap:8px">
+            <button class="btn-mini" id="resetBtn" type="button">Reiniciar</button>
+            <button class="btn-mini btn-play" id="playBtn" type="button">Reproducir transformación</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bloque informativo adicional -->
+
+
+      <p class="hint container-narrow reveal">
+        Sugerencia: presiona <span class="kbd">Reproducir transformación</span> y luego <span class="kbd">Reiniciar</span> para repetir el efecto tantas veces como quieras.
+      </p>
+    </div>
+  </section>
+
+  <!-- Bloque de preguntas rápidas (FAQ) -->
+  <section aria-labelledby="faq-title">
+    <div class="container">
+      <div class="section-head">
+        <h3 id="faq-title">Preguntas rápidas</h3>
+        <div class="section-sub">Información que suele importar para decisiones rápidas y comparativas.</div>
+      </div>
+
+      <div class="faq">
+        <div class="qa reveal">
+          <h4>¿Qué diferencia real percibe el usuario?</h4>
+          <p>Mayor definición en bordes, mejor contraste en áreas clave y un resultado limpio que mejora la lectura visual. Es inmediato y perceptible.</p>
+        </div>
+        <div class="qa reveal">
+          <h4>¿Cómo se integra esto a un flujo?</h4>
+          <p>Se sube la imagen, se procesa con IA y se exporta el resultado en el formato requerido (PNG, JPEG, WebP) según el canal de publicación.</p>
+        </div>
+        <div class="qa reveal">
+          <h4>¿Sirve para ecommerce y branding?</h4>
+          <p>Sí. La transparencia facilita composiciones sobre fondos creativos o alineados al manual de marca, sin bordes residuales ni ruido.</p>
+        </div>
+        <div class="qa reveal">
+          <h4>¿Puedo ver más ejemplos?</h4>
+          <p>Accede al comparador y a más casos directos en <a href="https://enhancestar.online" target="_blank" rel="noopener">EnhanceStar.online</a>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer role="contentinfo">
+    © 2025 Enhance Star — Experiencia perceptible y profesional. •
+    <a href="https://enhancestar.online" target="_blank" rel="noopener">EnhanceStar.online</a>
+  </footer>
+
+  <script>
+    // =========================================================
+    // Reveal en scroll (IntersectionObserver)
+    // =========================================================
+    const reveals=document.querySelectorAll('.reveal');
+    const io=new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(entry.isIntersecting){ entry.target.classList.add('visible'); }
+      });
+    },{threshold:.2});
+    reveals.forEach(el=>io.observe(el));
+
+    // =========================================================
+    // Utilidades de imagen
+    // =========================================================
+    function preload(src){
+      return new Promise(res=>{
+        const i=new Image();
+        i.onload=()=>res(true);
+        i.onerror=()=>res(false);
+        i.src=src;
+      });
+    }
+
+    // =========================================================
+    // Transformación: sustituir base por result (p.jpg -> psf.png)
+    // =========================================================
+    const playBtn = document.getElementById('playBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const statusText = document.getElementById('statusText');
+    const stage = document.getElementById('transformStage');
+    let imgBase = document.getElementById('imgBase');     // p.jpg (con fondo)
+    const imgResult = document.getElementById('imgResult'); // psf.png (sin fondo)
+
+    let removedBase = false;
+    let animRunning = false;
+
+    // Preload inicial
+    Promise.all([preload(imgBase.src), preload(imgResult.src)]).then((ok)=>{
+      statusText.textContent = ok.every(Boolean)
+        ? 'Imágenes cargadas. Pulsa “Reproducir transformación”.'
+        : 'Algunas imágenes no cargaron, intenta reproducir igualmente.';
+    });
+
+    // Animación helper (timeline con requestAnimationFrame)
+    function animate(stepFn, duration){
+      return new Promise((resolve)=>{
+        const t0 = performance.now();
+        function frame(t){
+          const p = Math.min((t - t0)/duration, 1);
+          stepFn(p);
+          if(p<1){ requestAnimationFrame(frame); } else { resolve(); }
+        }
+        requestAnimationFrame(frame);
+      });
+    }
+    function easeOutCubic(x){ return 1 - Math.pow(1 - x, 3); }
+    function easeInOutCubic(x){ return x<0.5 ? 4*x*x*x : 1 - Math.pow(-2*x+2,3)/2; }
+
+    // Botón reproducir: atenuar base, mostrar result y luego sustituir (eliminar base)
+    playBtn.addEventListener('click', async ()=>{
+      if(animRunning) return;
+      animRunning = true;
+      statusText.textContent = 'Transformando… aplicando limpieza de fondo';
+
+      try{
+        // Fase 1: atenuamos y escalamos ligeramente la base
+        await animate((p)=>{
+          const ease = easeOutCubic(p);
+          imgBase.style.opacity = String(1 - 0.6*ease);
+          imgBase.style.transform = `scale(${1 - 0.02*ease})`;
+        }, 650);
+
+        // Fase 2: revelamos la imagen resultante sobre la base
+        await animate((p)=>{
+          const ease = easeOutCubic(p);
+          imgResult.style.opacity = String(0 + 1*ease);
+          imgResult.style.transform = `scale(${0.98 + 0.02*ease})`;
+        }, 650);
+
+        // Fase 3: sustituimos realmente la imagen (removemos la base del DOM)
+        if(!removedBase){
+          imgBase.remove();
+          removedBase = true;
+        }
+        statusText.textContent = 'Completado: psf.png sustituye a p.jpg (fondo eliminado)';
+      } finally {
+        animRunning = false;
+      }
+    });
+
+    // Botón reiniciar: restituimos la base si fue eliminada y reseteamos estados
+    resetBtn.addEventListener('click', ()=>{
+      if(removedBase){
+        const newImg = document.createElement('img');
+        newImg.id = 'imgBase';
+        newImg.className = 'img-base';
+        newImg.alt = 'Con fondo (p.jpg)';
+        newImg.src = "p.jpg";
+        // estilos inline esenciales para continuidad visual (el resto viene del CSS por clase .transform-stage img)
+        newImg.style.opacity = '1';
+        newImg.style.transform = 'scale(1)';
+        stage.insertBefore(newImg, imgResult);
+        imgBase = newImg;
+        removedBase = false;
+      }
+      imgResult.style.opacity = '0';
+      imgResult.style.transform = 'scale(0.98)';
+      statusText.textContent = 'Listo para transformar: p.jpg → psf.png';
+    });
+
+    // =========================================================
+    // Micro-interacción: teclas rápidas
+    //  - Enter: reproducir
+    //  - Backspace: reiniciar
+    // =========================================================
+    window.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter'){
+        playBtn.click();
+      } else if(e.key === 'Backspace'){
+        e.preventDefault();
+        resetBtn.click();
+      }
+    });
+
+    // =========================================================
+    // Extra: scroll suave a anclas (mejora UX)
+    // =========================================================
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{
+      a.addEventListener('click', (e)=>{
+        const id = a.getAttribute('href').slice(1);
+        const target = document.getElementById(id);
+        if(target){
+          e.preventDefault();
+          target.scrollIntoView({behavior:'smooth', block:'start'});
+        }
+      });
+    });
+
+    // =========================================================
+    // Accesibilidad: foco inicial en hero CTA (mejora teclado)
+    // =========================================================
+    window.addEventListener('load', ()=>{
+      const firstCta = document.querySelector('.cta-row .btn-primary');
+      if(firstCta) firstCta.focus({preventScroll:true});
+    });
+  </script>
+</body>
+</html>
