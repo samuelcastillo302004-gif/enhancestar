@@ -100,7 +100,7 @@
 
   function enhanceUrl(publicId, opts={}){
     const { width = state.settings.width, dpr = 2, noise = state.settings.noise, sharpen = state.settings.sharpen, improve = state.settings.improve, upscale = state.settings.upscale, crop = "limit" } = opts;
-    const effects = ["f_auto","q_auto:best",`c_${crop}`,`w_${width}`,`dpr_${dpr}`,`e_noise:${noise}`,`e_sharpen:${sharpen}`];
+    const effects = ["f_png","q_auto:best",`c_${crop}`,`w_${width}`,`dpr_${dpr}`,`e_noise:${noise}`,`e_sharpen:${sharpen}`];
     if(improve) effects.push("e_improve");
     if(upscale) effects.push("e_upscale");
     return buildTransformUrl(publicId, effects);
@@ -329,3 +329,4 @@
   showToast("Bienvenido a Enhance Star — carga una imagen para comenzar", true);
 
 })();
+
