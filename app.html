@@ -2,12 +2,68 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+
+  <!-- VIEWPORT MODIFICADO PARA BLOQUEAR ZOOM DEL USUARIO -->
+  <meta id="viewportMeta"
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
   <title>Enhance Star</title>
   <meta name="description" content="Enhance Star — Editor profesional: mejora IA, eliminación de fondo, zoom, pan, filtros y animaciones." />
   <link rel="stylesheet" href="styles.css">
+
+  <style>
+    /* Ajuste visual para compensar el scale en móviles */
+    body.mobile-zoom {
+      transform: scale(0.5);
+      transform-origin: top left;
+      width: 200%;  /* compensa el scale 0.5 */
+      height: 200%;
+      overflow: hidden !important;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+  </style>
 </head>
 <body>
+
+  <script>
+    /* =====================
+       DETECTAR TELÉFONO Y APLICAR ZOOM FIJO AL 50%
+       =====================*/
+    function aplicarZoomMovil() {
+      const viewport = document.getElementById("viewportMeta");
+
+      if (window.innerWidth <= 768) {
+        // Aplicar clase que hace scale 0.5
+        document.body.classList.add("mobile-zoom");
+
+        // Bloquear zoom del usuario
+        viewport.setAttribute(
+          "content",
+          "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        );
+      }
+    }
+
+    aplicarZoomMovil();
+
+    // Prevenir cualquier intento de zoom con gestos
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+    document.addEventListener('gestureend', e => e.preventDefault());
+
+    // Prevenir doble-tap zoom
+    let lastTouch = 0;
+    document.addEventListener("touchend", function (e) {
+      const now = Date.now();
+      if (now - lastTouch <= 300) e.preventDefault();
+      lastTouch = now;
+    }, false);
+  </script>
+
+  <!-- ================= TU HTML ORIGINAL COMPLETO ================= -->
 
   <div id="introLoader" role="status" aria-live="polite">
     <div class="loader-card" role="presentation" aria-hidden="false">
@@ -34,7 +90,9 @@
 
     <div class="topbar" role="navigation" aria-label="Barra superior">
       <div class="brand" style="gap:14px;">
-        <div class="brand-logo" aria-hidden="true"><img alt="Enhance Star Logo" src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhi_PvmsAMKmSMv8v1qtG6RQbzCm8DjFhzZDO5eklCD4VfhfeIe_RKnCT4thyphenhyphen5M_jYl9nqNp8PUk5_YP2rHrdQK7Q_1ZC4mqkb1zgi0TkM_NT-vQzgtG3-sW24rIOdS8KVC0TCnbd4Sv1dEv5IdAaG8bDQzXagVkeK2xoH690nDdomWEcYOfVtVYybfIQw/s320/Copilot_20251208_202732.png" /></div>
+        <div class="brand-logo" aria-hidden="true">
+          <img alt="Enhance Star Logo" src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhi_PvmsAMKmSMv8v1qtG6RQbzCm8DjFhzZDO5eklCD4VfhfeIe_RKnCT4thyphenhyphen5M_jYl9nqNp8PUk5_YP2rHrdQK7Q_1ZC4mqkb1zgi0TkM_NT-vQzgtG3-sW24rIOdS8KVC0TCnbd4Sv1dEv5IdAaG8bDQzXagVkeK2xoH690nDdomWEcYOfVtVYybfIQw/s320/Copilot_20251208_202732.png" />
+        </div>
         <div class="brand-text">
           <div class="title">Enhance Star</div>
           <div class="subtitle">Editor IA • Mejora la calidad de tus imagenes</div>
@@ -51,12 +109,10 @@
 
         <div class="top-actions">
           <label style="display:flex;gap:8px;align-items:center;color:var(--muted);"><input type="checkbox" id="autoDownload" /> Descargar auto</label>
-          <!-- Se eliminó la etiqueta 'Usuario: none' como pediste -->
         </div>
       </div>
     </div>
 
-    <!-- ========================= CARD PRINCIPAL ========================= -->
     <div class="card" role="region" aria-label="Editor Card">
       <div class="card-header">
         <div style="display:flex;align-items:center;gap:12px;">
@@ -70,6 +126,7 @@
       </div>
 
       <div class="card-body">
+
         <!-- LEFT PANE -->
         <div class="pane" id="paneOriginal" aria-label="Original pane">
           <div class="pane-header">
@@ -100,7 +157,7 @@
 
           <div class="controls">
             <button id="bgRemoveBtn" class="btn" disabled>🪄 Eliminar fondo</button>
-            <div class="progress" aria-label="Progreso fondo" title="Progreso de eliminación de fondo"><div class="bar" id="bgProgressBar"></div></div>
+            <div class="progress"><div class="bar" id="bgProgressBar"></div></div>
             <div style="flex:1"></div>
             <button id="downloadBgBtn" class="btn" disabled>Descargar sin fondo</button>
           </div>
@@ -112,7 +169,7 @@
             <div class="pane-title" id="titleEnhanced">Mejorada (IA)</div>
             <div style="display:flex;align-items:center;gap:8px;">
               <button id="enhanceBtn" class="btn btn-primary" disabled>✨ Botón mágico</button>
-              <div class="progress" aria-label="Progreso mejora" title="Progreso de mejora"><div class="bar" id="progressBar"></div></div>
+              <div class="progress"><div class="bar" id="progressBar"></div></div>
               <button id="downloadBtn" class="btn" disabled>Descargar</button>
             </div>
           </div>
@@ -129,20 +186,29 @@
             </div>
           </div>
 
-          <div class="settings" id="settingsPanel" aria-label="Ajustes">
+          <div class="settings" id="settingsPanel">
             <div class="setting-item">
               <div class="setting-label"><strong>Reducción de ruido</strong><span class="hint">e_noise (20-80)</span></div>
-              <div class="setting-control"><input id="noiseRange" type="range" min="20" max="80" step="5" value="50"/><input id="noiseNumber" type="number" min="20" max="80" step="5" value="50" style="width:80px;padding:6px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--text)"/></div>
+              <div class="setting-control">
+                <input id="noiseRange" type="range" min="20" max="80" step="5" value="50"/>
+                <input id="noiseNumber" type="number" min="20" max="80" step="5" value="50"/>
+              </div>
             </div>
 
             <div class="setting-item">
               <div class="setting-label"><strong>Nitidez</strong><span class="hint">e_sharpen (20-80)</span></div>
-              <div class="setting-control"><input id="sharpenRange" type="range" min="20" max="80" step="5" value="60"/><input id="sharpenNumber" type="number" min="20" max="80" step="5" value="60" style="width:80px;padding:6px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--text)"/></div>
+              <div class="setting-control">
+                <input id="sharpenRange" type="range" min="20" max="80" step="5" value="60"/>
+                <input id="sharpenNumber" type="number" min="20" max="80" step="5" value="60"/>
+              </div>
             </div>
 
             <div class="setting-item">
               <div class="setting-label"><strong>Ancho destino</strong><span class="hint">w_ (1200-3200 px)</span></div>
-              <div class="setting-control"><input id="widthRange" type="range" min="1200" max="3200" step="200" value="2400"/><input id="widthNumber" type="number" min="1200" max="3200" step="200" value="2400" style="width:100px;padding:6px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--text)"/></div>
+              <div class="setting-control">
+                <input id="widthRange" type="range" min="1200" max="3200" step="200" value="2400"/>
+                <input id="widthNumber" type="number" min="1200" max="3200" step="200" value="2400"/>
+              </div>
             </div>
 
             <div class="setting-item">
